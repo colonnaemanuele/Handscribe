@@ -1,2 +1,1 @@
-# Handscribe
 # COMING SOON!!!
