@@ -48,7 +48,6 @@ model_args:
   c2d_type: slowfast101 #resnet18, mobilenet_v2, squeezenet1_1, shufflenet_v2_x1_0, efficientnet_b1, mnasnet1_0, regnet_y_800mf, vgg16_bn, vgg11_bn, regnet_x_800mf, regnet_x_400mf, densenet121, regnet_y_1_6gf
   conv_type: 2
   use_bn: 1
-  share_classifier: 1
   weight_norm: False
 
 decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead

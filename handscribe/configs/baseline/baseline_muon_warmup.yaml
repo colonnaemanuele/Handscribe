@@ -32,9 +32,9 @@ optimizer_args:
   warmup_start_lr: 0.00001
   weight_decay: 0.0001
   start_epoch: 0
-  nesterov: True
-  backend: "newtonschulz5"
-  rank: 1
+  # nesterov: True
+  # backend: "newtonschulz5"
+  # rank: 1
 
 feeder_args:
   mode: 'train'
@@ -52,8 +52,6 @@ model_args:
   c2d_type: slowfast101 #resnet18, mobilenet_v2, squeezenet1_1, shufflenet_v2_x1_0, efficientnet_b1, mnasnet1_0, regnet_y_800mf, vgg16_bn, vgg11_bn, regnet_x_800mf, regnet_x_400mf, densenet121, regnet_y_1_6gf
   conv_type: 2
   use_bn: 1
-  # SMKD
-  share_classifier: 1
   weight_norm: False
 
 decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead

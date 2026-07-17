@@ -2,15 +2,15 @@ wandb:
   wandb_project: GFSlowFastSign
   wandb_entity: carp1
   wandb_mode: offline
-feeder: dataset.dataloader_video.BaseFeeder
+feeder: GFSlowFastSign.dataset.dataloader_video.BaseFeeder
 phase: train
+# dataset: phoenix2014-T
 num_epoch: 80
 work_dir: GFSlowFastSign/work_dir/baseline_res18/
 batch_size: 2
 random_seed: 42
 test_batch_size: 2
-num_worker: 8
-device: 0
+num_worker: 0
 log_interval: 100
 eval_interval: 1
 save_interval: 5
@@ -29,6 +29,7 @@ optimizer_args:
   momentum: 0.95
   scheduler: "multistep"
   warmup_epochs: 5
+  # step: [[40, 60], [20, 40, 60]]
   step: [[40, 60]]
   gamma: 0.2
   weight_decay: 0.0001
@@ -44,19 +45,19 @@ feeder_args:
   image_scale: 1.0  # 0-1 represents ratio, >1 represents absolute value
   input_size: 224
 
-model: slt_network_multi.SLTModel
+model: slt_network_parallel.SLTModelParallel
 slowfast_config: SLOWFAST_64x2_R101_50_50.yaml
 model_args:
   num_classes: 1296
   c2d_type: slowfast101 #resnet18, mobilenet_v2, squeezenet1_1, shufflenet_v2_x1_0, efficientnet_b1, mnasnet1_0, regnet_y_800mf, vgg16_bn, vgg11_bn, regnet_x_800mf, regnet_x_400mf, densenet121, regnet_y_1_6gf
   conv_type: 2
   use_bn: 1
-  share_classifier: 1
   weight_norm: False
+  backbone: slowfast
 
 decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead
 decoder_args:
-  # projector_type: GFResidualProjectionLayer  # GFProjectionLayer
+  # projector_type:   GFProjectionLayer #GFResidualProjectionLayer
   projector_args:
     input_dim: 1024
     hidden_dim: 512

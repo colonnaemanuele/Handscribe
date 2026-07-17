@@ -5,7 +5,7 @@ wandb:
 feeder: dataset.dataloader_video.BaseFeeder
 phase: train
 num_epoch: 80
-work_dir: GFSlowFastSign/work_dir/multistep_muon/
+work_dir: GFSlowFastSign/work_dir/ablation_single_decoder/
 batch_size: 2
 random_seed: 42
 test_batch_size: 2
@@ -17,24 +17,17 @@ save_interval: 5
 # python in default
 evaluate_tool: python
 loss_weights:
-  Slow: 0.25
-  Fast: 0.25
+  # Slow/Fast non applicabili: un solo decoder su feature combinate
   CrossEntropy: 0.5
   CrossRougeEntropy: 0.5
 #load_weights: ''
 
 optimizer_args:
-  optimizer: Muon
+  optimizer: AdamW
   base_lr: 0.0001
-  momentum: 0.95
-  scheduler: "multistep"
-  step: [[40, 60]]
-  gamma: 0.2
+  scheduler: "cosine"
   weight_decay: 0.0001
   start_epoch: 0
-  # nesterov: True
-  # backend: "newtonschulz5"
-  # rank: 1
 
 feeder_args:
   mode: 'train'
@@ -53,6 +46,8 @@ model_args:
   conv_type: 2
   use_bn: 1
   weight_norm: False
+  backbone: slowfast
+  decoder_mode: single
 
 decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead
 decoder_args:

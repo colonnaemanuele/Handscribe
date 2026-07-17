@@ -2,10 +2,10 @@ wandb:
   wandb_project: GFSlowFastSign
   wandb_entity: carp1
   wandb_mode: offline
-feeder: dataset.dataloader_video.BaseFeeder
+feeder: GFSlowFastSign.dataset.dataloader_video.BaseFeeder
 phase: train
 num_epoch: 80
-work_dir: GFSlowFastSign/work_dir/multistep_muon/
+work_dir: GFSlowFastSign/work_dir/baseline_res18/
 batch_size: 2
 random_seed: 42
 test_batch_size: 2
@@ -24,17 +24,16 @@ loss_weights:
 #load_weights: ''
 
 optimizer_args:
-  optimizer: Muon
+  optimizer: AdamW
   base_lr: 0.0001
   momentum: 0.95
   scheduler: "multistep"
+  warmup_epochs: 5
   step: [[40, 60]]
   gamma: 0.2
   weight_decay: 0.0001
   start_epoch: 0
-  # nesterov: True
-  # backend: "newtonschulz5"
-  # rank: 1
+  nesterov: True
 
 feeder_args:
   mode: 'train'
@@ -46,17 +45,20 @@ feeder_args:
   input_size: 224
 
 model: slt_network_multi.SLTModel
-slowfast_config: SLOWFAST_64x2_R101_50_50.yaml
 model_args:
   num_classes: 1296
-  c2d_type: slowfast101 #resnet18, mobilenet_v2, squeezenet1_1, shufflenet_v2_x1_0, efficientnet_b1, mnasnet1_0, regnet_y_800mf, vgg16_bn, vgg11_bn, regnet_x_800mf, regnet_x_400mf, densenet121, regnet_y_1_6gf
+  c2d_type: null
+  backbone: swin
+  backbone_model_name: microsoft/swin-base-patch4-window7-224
+  img_size: 224
   conv_type: 2
   use_bn: 1
+  
   weight_norm: False
 
 decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead
 decoder_args:
-  # projector-type: GFResidualProjectionLayer  # GFProjectionLayer
+  # projector_type: GFResidualProjectionLayer  # GFProjectionLayer
   projector_args:
     input_dim: 1024
     hidden_dim: 512
