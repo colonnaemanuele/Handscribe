@@ -1,4 +1,4 @@
-dataset_root: GFSlowFastSign/dataset/CSL
-dict_path: GFSlowFastSign/preprocess/CSL/gloss_dict.npy
+dataset_root: handscribe/dataset/CSL
+dict_path: handscribe/preprocess/CSL/gloss_dict.npy
 evaluation_dir: ./evaluation/slr_eval
 evaluation_prefix: CSL-groundtruth

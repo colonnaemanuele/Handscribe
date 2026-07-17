@@ -85,7 +85,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset-root",
         type=str,
-        default="GFSlowFastSign/dataset/phoenix-2014/phoenix2014-release/phoenix-2014-multisigner",
+        default="handscribe/dataset/phoenix-2014/phoenix2014-release/phoenix-2014-multisigner",
         help="path to the dataset",
     )
     parser.add_argument(

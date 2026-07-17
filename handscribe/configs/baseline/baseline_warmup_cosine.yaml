@@ -1,11 +1,11 @@
 wandb:
-  wandb_project: GFSlowFastSign
+  wandb_project: handscribe
   wandb_entity: carp1
   wandb_mode: offline
 feeder: dataset.dataloader_video.BaseFeeder
 phase: train
 num_epoch: 80
-work_dir: GFSlowFastSign/work_dir/warmup_cosine/
+work_dir: handscribe/work_dir/warmup_cosine/
 batch_size: 2
 random_seed: 42
 test_batch_size: 2
@@ -50,7 +50,7 @@ model_args:
   use_bn: 1
   weight_norm: False
 
-decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead
+decoder: handscribe.utils.decoder.SingleDecoderHead
 decoder_args:
   # projector-type: GFResidualProjectionLayer  # GFProjectionLayer
   projector_args:

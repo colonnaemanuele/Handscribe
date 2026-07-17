@@ -73,7 +73,7 @@ def run_cmd(func, args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Data process for Visual Alignment Constraint for Continuous Sign Language Recognition.')
     parser.add_argument('--dataset', type=str, default='phoenix2014-T', help='save prefix')
-    parser.add_argument('--dataset-root', type=str, default='GFSlowFastSign/dataset/PHOENIX-2014-T', help='path to the dataset')
+    parser.add_argument('--dataset-root', type=str, default='handscribe/dataset/PHOENIX-2014-T', help='path to the dataset')
     parser.add_argument('--annotation-prefix', type=str, default='annotations/manual/PHOENIX-2014-T.{}.corpus.csv', help='annotation prefix')
     parser.add_argument('--output-res', type=str, default='256x256px', help='resize resolution for image sequence')
     parser.add_argument('--process-image', '-p', action='store_true', help='resize image')

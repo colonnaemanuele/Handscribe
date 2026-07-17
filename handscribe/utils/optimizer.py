@@ -1,7 +1,7 @@
 import pdb
 import torch
 import torch.optim as optim
-from GFSlowFastSign.utils.cosinelr import CosineAnnealingWarm
+from handscribe.utils.cosinelr import CosineAnnealingWarm
 from muon import Muon
 
 class Optimizer(object):

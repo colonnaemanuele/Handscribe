@@ -37,11 +37,11 @@ class BaseFeeder(data.Dataset):
         self.image_scale = image_scale # not implemented for read_features()
         self.feat_prefix = f"{prefix}/features/fullFrame-256x256px/{mode}"
         self.transform_mode = "train" if transform_mode else "test"
-        self.inputs_list = np.load(f"GFSlowFastSign/preprocess/{dataset}/{mode}_info.npy", allow_pickle=True).item()
+        self.inputs_list = np.load(f"handscribe/preprocess/{dataset}/{mode}_info.npy", allow_pickle=True).item()
         print(mode, len(self))
         self.data_aug = self.transform()
         if self.gloss_free:
-            vocab_file = f"GFSlowFastSign/preprocess/{dataset}/vocab.pkl"
+            vocab_file = f"handscribe/preprocess/{dataset}/vocab.pkl"
             if os.path.exists(vocab_file):
                 with open(vocab_file, 'rb') as f:
                     self.word2idx = pickle.load(f)
@@ -226,7 +226,7 @@ class BaseFeeder(data.Dataset):
 
 if __name__ == "__main__":
     feeder = BaseFeeder(
-        prefix='GFSlowFastSign/dataset/phoenix-2014/phoenix2014-release/phoenix-2014-multisigner',
+        prefix='handscribe/dataset/phoenix-2014/phoenix2014-release/phoenix-2014-multisigner',
         dataset='phoenix2014T',
         datatype='video',
         kernel_size = ['K5','P2','K5','P2']

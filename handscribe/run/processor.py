@@ -9,9 +9,9 @@ import inspect
 from collections import OrderedDict
 from shutil import copytree
 
-from GFSlowFastSign.modules.sync_batchnorm.batchnorm import convert_model
-import GFSlowFastSign.utils as utils
-from GFSlowFastSign.utils.helper import CheckpointManager, MetricMode
+from handscribe.modules.sync_batchnorm.batchnorm import convert_model
+import handscribe.utils as utils
+from handscribe.utils.helper import CheckpointManager, MetricMode
 from seq_scripts import seq_train, seq_eval, seq_feature_generation
 
 class ExperimentProcessor:
@@ -56,20 +56,20 @@ class ExperimentProcessor:
             
         # Copy source code for reproducibility
         shutil.copy2("main.py", self.args.work_dir) # Copia il main
-        shutil.copy2("GFSlowFastSign/configs/baseline/baseline.yaml", self.args.work_dir)
-        copytree("GFSlowFastSign/slowfast_modules", self.args.work_dir + "/slowfast_modules", dirs_exist_ok=True)
-        copytree("GFSlowFastSign/modules", self.args.work_dir + "/modules", dirs_exist_ok=True)
+        shutil.copy2("handscribe/configs/baseline/baseline.yaml", self.args.work_dir)
+        copytree("handscribe/slowfast_modules", self.args.work_dir + "/slowfast_modules", dirs_exist_ok=True)
+        copytree("handscribe/modules", self.args.work_dir + "/modules", dirs_exist_ok=True)
 
     def _init_recorder_and_wandb(self):
         self.recoder = utils.Recorder(self.args.work_dir, self.args.print_log, self.args.log_interval)
         
         # WandB Setup
         if hasattr(self.args, 'wandb') and isinstance(self.args.wandb, dict):
-            w_proj = self.args.wandb.get('wandb_project', 'GFSlowFastSign')
+            w_proj = self.args.wandb.get('wandb_project', 'handscribe')
             w_entity = self.args.wandb.get('wandb_entity', None)
             w_off = self.args.wandb.get('wandb_offline', False)
         else:
-            w_proj = getattr(self.args, 'wandb_project', 'GFSlowFastSign')
+            w_proj = getattr(self.args, 'wandb_project', 'handscribe')
             w_entity = getattr(self.args, 'wandb_entity', None)
             w_off = getattr(self.args, 'wandb_offline', False)
 

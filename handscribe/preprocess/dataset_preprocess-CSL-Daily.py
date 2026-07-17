@@ -95,9 +95,9 @@ if __name__ == '__main__':
         description='Data process for Visual Alignment Constraint for Continuous Sign Language Recognition.')
     parser.add_argument('--dataset', type=str, default='CSL-Daily',
                         help='save prefix')
-    parser.add_argument('--dataset-root', type=str, default='GFSlowFastSign/dataset/CSL-Daily/sentence/frames_512x512',
+    parser.add_argument('--dataset-root', type=str, default='handscribe/dataset/CSL-Daily/sentence/frames_512x512',
                         help='path to the dataset')
-    parser.add_argument('--target-path', type=str, default='GFSlowFastSign/dataset/CSL-Daily/sentence/frames_256x256',
+    parser.add_argument('--target-path', type=str, default='handscribe/dataset/CSL-Daily/sentence/frames_256x256',
                         help='target path to the dataset')
     parser.add_argument('--annotation-file', type=str, default='video_map.txt',
                         help='annotation file')

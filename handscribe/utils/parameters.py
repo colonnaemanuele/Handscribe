@@ -13,7 +13,7 @@ def get_parser():
         help='the work folder for storing results')
     parser.add_argument(
         '--config',
-        default='GFSlowFastSign/configs/baseline/baseline.yaml',
+        default='handscribe/configs/baseline/baseline.yaml',
         help='path to the configuration file')
     parser.add_argument(
         '--random_fix',

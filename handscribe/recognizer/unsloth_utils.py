@@ -8,7 +8,7 @@ from unsloth.chat_templates import get_chat_template
 
 PROJ_DIR = os.getcwd()
 TUNED_MODELS_DIR = os.path.join(PROJ_DIR, 'ft_output')
-DATASET_DIR = os.path.join(PROJ_DIR, 'GFSlowFastSign/dataset/PHOENIX-2014-T/annotations/manual')
+DATASET_DIR = os.path.join(PROJ_DIR, 'handscribe/dataset/PHOENIX-2014-T/annotations/manual')
 GER_TRAIN_CSV = os.path.join(DATASET_DIR, 'PHOENIX-2014-T.train.corpus.csv')
 GER_TEST_CSV = os.path.join(DATASET_DIR, 'PHOENIX-2014-T.test.corpus.csv')
 

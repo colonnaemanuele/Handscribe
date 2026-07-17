@@ -1,12 +1,12 @@
 wandb:
-  wandb_project: GFSlowFastSign
+  wandb_project: handscribe
   wandb_entity: carp1
   wandb_mode: offline
-feeder: GFSlowFastSign.dataset.dataloader_video.BaseFeeder
+feeder: handscribe.dataset.dataloader_video.BaseFeeder
 phase: train
 # dataset: phoenix2014-T
 num_epoch: 80
-work_dir: GFSlowFastSign/work_dir/baseline_res18/
+work_dir: handscribe/work_dir/baseline_res18/
 batch_size: 2
 random_seed: 42
 test_batch_size: 2
@@ -55,7 +55,7 @@ model_args:
   weight_norm: False
   backbone: slowfast
 
-decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead
+decoder: handscribe.utils.decoder.SingleDecoderHead
 decoder_args:
   # projector_type:   GFProjectionLayer #GFResidualProjectionLayer
   projector_args:

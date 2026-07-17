@@ -10,9 +10,9 @@ from torchvision.transforms.functional import rgb_to_grayscale as convert_graysc
 import sys, os, importlib
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 
-from GFSlowFastSign.slowfast_modules import head_helper, resnet_helper, stem_helper  # noqa
-from GFSlowFastSign.slowfast_modules import weight_init_helper as init_helper
-from GFSlowFastSign.slowfast_modules.checkpoint import load_checkpoint
+from handscribe.slowfast_modules import head_helper, resnet_helper, stem_helper  # noqa
+from handscribe.slowfast_modules import weight_init_helper as init_helper
+from handscribe.slowfast_modules.checkpoint import load_checkpoint
 from fvcore.common.config import CfgNode
 import yaml
 import pdb
@@ -311,7 +311,7 @@ def slowfast50(slowfast_config='SLOWFAST_8x8_R50.yaml', slowfast_args=[], load_p
     return model
 
 def slowfast101(slowfast_config='SLOWFAST_64x2_R101_50_50.yaml', slowfast_args=[], load_pkl=True, multi=False):
-    cfg = yaml.load(open('GFSlowFastSign/slowfast_modules/configs/' + slowfast_config, 'r'), Loader=yaml.FullLoader)
+    cfg = yaml.load(open('handscribe/slowfast_modules/configs/' + slowfast_config, 'r'), Loader=yaml.FullLoader)
     cfg = CfgNode(cfg)
     if len(slowfast_args) > 0:
         cfg.merge_from_list(slowfast_args)
@@ -321,7 +321,7 @@ def slowfast101(slowfast_config='SLOWFAST_64x2_R101_50_50.yaml', slowfast_args=[
     return model
 
 def test():
-    cfg = yaml.load(open('GFSlowFastSign/slowfast_modules/configs/SLOWFAST_64x2_R101_50_50.yaml', 'r'), Loader=yaml.FullLoader)
+    cfg = yaml.load(open('handscribe/slowfast_modules/configs/SLOWFAST_64x2_R101_50_50.yaml', 'r'), Loader=yaml.FullLoader)
     cfg = CfgNode(cfg)
     model = SlowFast(cfg)
     load_checkpoint('ckpt/SLOWFAST_64x2_R101_50_50.pkl', model)

@@ -1,3 +1,3 @@
-dataset_root: GFSlowFastSign/dataset/dataset_LIS_v2/dataset_split
-evaluation_dir: GFSlowFastSign/evaluation/slr_eval
+dataset_root: handscribe/dataset/dataset_LIS_v2/dataset_split
+evaluation_dir: handscribe/evaluation/slr_eval
 evaluation_prefix: dataset_LIS_v2-groundtruth

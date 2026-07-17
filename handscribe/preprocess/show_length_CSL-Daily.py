@@ -1,5 +1,5 @@
 from tqdm import tqdm 
-with open('GFSlowFastSign/preprocess/CSL-Daily/video_map.txt','r', encoding='utf-8') as f:
+with open('handscribe/preprocess/CSL-Daily/video_map.txt','r', encoding='utf-8') as f:
     inputs_list = f.readlines()
 total_length = 0
 for file_idx, file_info in tqdm(enumerate(inputs_list[1:]), total=len(inputs_list)-1):  # Exclude first line

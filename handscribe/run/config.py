@@ -1,6 +1,6 @@
 import yaml
 import os
-from GFSlowFastSign.utils import get_parser
+from handscribe.utils import get_parser
 
 def flatten_dict(d, parent_key='', sep='.'):
     """Appiattisce dizionari annidati."""
@@ -53,7 +53,7 @@ def load_config():
             setattr(args, config_name, config_value)
 
     if hasattr(args, 'dataset'):
-        config_path = f"GFSlowFastSign/configs/{args.dataset}.yaml"
+        config_path = f"handscribe/configs/{args.dataset}.yaml"
         if os.path.exists(config_path):
             with open(config_path, "r") as f:
                 args.dataset_info = yaml.load(f, Loader=yaml.FullLoader)

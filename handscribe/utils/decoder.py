@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from GFSlowFastSign.utils.decoder_utils import load_mbart
+from handscribe.utils.decoder_utils import load_mbart
 
 
 class GFProjectionLayer(nn.Module):
