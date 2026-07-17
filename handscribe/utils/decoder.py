@@ -128,17 +128,33 @@ class SingleDecoderHead(nn.Module):
         if self.mbart_tokenizer is None:
             raise ValueError("MBART tokenizer is not initialized.")
 
-    def forward(self, input_features=None, target_texts=None, inference=False):
+    def _build_attention_mask(self, projected_features, feat_len):
+        """Costruisce la mask (B, T) per l'encoder di mBART a partire dalle lunghezze reali.
+
+        I frame di padding introdotti dalla collate_fn (ripetizione dell'ultimo frame)
+        non devono essere attesi dal cross-attention del decoder.
+        """
+        if feat_len is None:
+            return None
+        num_frames = projected_features.size(1)
+        lengths = feat_len.to(projected_features.device).long().clamp(min=1, max=num_frames)
+        idx = torch.arange(num_frames, device=projected_features.device).unsqueeze(0)
+        return (idx < lengths.unsqueeze(1)).long()
+
+    def forward(self, input_features=None, target_texts=None, inference=False, feat_len=None):
         self.check_data(input_features)
 
         # input_features from BiLSTMLayer is (seq_len, batch_size, hidden_size)
         projected_features = self.projector(input_features)  # This will output (batch_size, seq_len, mbart_dim)
+
+        attention_mask = self._build_attention_mask(projected_features, feat_len)
 
         if inference:
             # In inference, we want to generate text autoregressively
             generated_ids = self.mbart_model.generate(  # type: ignore
                 max_length=512,
                 inputs_embeds=projected_features,
+                attention_mask=attention_mask,
                 forced_bos_token_id=self.mbart_tokenizer.lang_code_to_id[self.lang_code],
                 num_beams=5,
                 do_sample=True,  # Consider setting to False for more deterministic results
@@ -160,12 +176,23 @@ class SingleDecoderHead(nn.Module):
                 truncation=True,
             ).input_ids.to(projected_features.device)  # type: ignore
 
-            # For `labels` in `mbart_model`, padding tokens should typically be -100 for loss computation
-            # The `ignore_index` in CrossEntropy handles this if `encoded_text` has 0s for padding
-            # and `ignore_index=0` is set in CrossEntropy.
+            # I token di padding devono valere -100 per essere ignorati dalla loss
+            # (sia dalla loss interna di mBART sia dalle nostre CrossEntropy/CrossRougeEntropy).
+            labels = encoded_text.clone()
+            pad_id = self.mbart_tokenizer.pad_token_id
+            if pad_id is not None:
+                labels[labels == pad_id] = -100
 
-            # The MBART model directly returns Seq2SeqLMOutput when labels are provided, and this output contains `logits`.
-            mbart_output = self.mbart_model(inputs_embeds=projected_features, labels=encoded_text)
+            # MBART restituisce un Seq2SeqLMOutput con `logits` e `loss` quando si passano i labels.
+            mbart_output = self.mbart_model(
+                inputs_embeds=projected_features,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
+            # Attacchiamo i target usati così che criterion_calculation possa calcolare
+            # loss aggiuntive (es. CrossRougeEntropy) sugli STESSI token mBART, garantendo
+            # coerenza tra logits e target (unica sorgente di verità del target).
+            mbart_output.text_labels = labels
             return mbart_output
         
     def batch_decode_tokens(self, token_ids):

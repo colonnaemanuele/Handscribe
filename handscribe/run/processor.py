@@ -56,7 +56,10 @@ class ExperimentProcessor:
             
         # Copy source code for reproducibility
         shutil.copy2("main.py", self.args.work_dir) # Copia il main
-        shutil.copy2("handscribe/configs/baseline/baseline.yaml", self.args.work_dir)
+        # Copia il config effettivamente in uso (non un baseline hardcoded).
+        cfg_path = getattr(self.args, 'config', None)
+        if cfg_path and os.path.exists(cfg_path):
+            shutil.copy2(cfg_path, self.args.work_dir)
         copytree("handscribe/slowfast_modules", self.args.work_dir + "/slowfast_modules", dirs_exist_ok=True)
         copytree("handscribe/modules", self.args.work_dir + "/modules", dirs_exist_ok=True)
 
@@ -148,8 +151,14 @@ class ExperimentProcessor:
             for k, v in slowfast_dict.items():
                 slowfast_args_list.extend([k, v])
             
+        # model_args è un dizionario (num_classes, c2d_type, conv_type, ...): va spacchettato
+        # come keyword arguments, non passato come primo argomento posizionale (num_classes).
+        model_args = self.args.model_args
+        if hasattr(model_args, '__dict__') and not isinstance(model_args, dict):
+            model_args = vars(model_args)
+
         model = model_class(
-            self.args.model_args,
+            **model_args,
             loss_weights=self.args.loss_weights,
             load_pkl=not (self.args.load_checkpoints or self.args.load_weights),
             slowfast_config=self.args.slowfast_config,
@@ -167,16 +176,20 @@ class ExperimentProcessor:
             self._load_checkpoint(model, optimizer, scaler)
         elif self.args.load_weights:
             self._load_weights_only(model, self.args.load_weights)
-            
-        # Move to GPU
-        model = model.to(self.device.output_device)
-        if len(self.device.gpu_list) > 1:
-            model = nn.DataParallel(model, device_ids=self.device.gpu_list, output_device=self.device.output_device)
-            model = convert_model(model)
-        model.cuda()
-        
+
+        # Posizionamento su GPU.
+        # I modelli model-parallel (es. SLTModelParallel) partizionano i moduli sulle GPU
+        # dentro il proprio __init__: NON vanno spostati né wrappati in DataParallel,
+        # altrimenti il partizionamento viene annullato.
+        # NB: non usiamo nn.DataParallel perché il training chiama metodi custom del modello
+        # (criterion_calculation, conv1d, ...) che il wrapper DataParallel non espone.
+        if not getattr(model, 'is_model_parallel', False):
+            model = model.to(self.device.output_device)
+            if self.device.device_type == 'cuda':
+                model.cuda()
+
         if hasattr(model, 'conv1d'):
-            self.kernel_sizes = model.conv1d.kernel_size 
+            self.kernel_sizes = model.conv1d.kernel_size
         return model, optimizer, scaler
 
     def _run_training(self):
