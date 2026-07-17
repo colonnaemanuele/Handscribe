@@ -146,15 +146,8 @@ def get_parser():
         '--batch-size', type=int, default=16, help='training batch size')
     parser.add_argument(
         '--test-batch-size', type=int, default=8, help='test batch size')
-
-    default_optimizer_dict = {
-        "base_lr": 1e-2,
-        "optimizer": "SGD",
-        "nesterov": False,
-        "step": [5, 10],
-        "weight_decay": 0.00005,
-        "start_epoch": 1,
-    }
+    
+    default_optimizer_dict = {}
     default_loss_dict = {}
 
     parser.add_argument(

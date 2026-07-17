@@ -6,8 +6,8 @@ from muon import Muon
 
 class Optimizer(object):
     def __init__(self, model, optim_dict):
+        print(f"Creating optimizer with config: {optim_dict}")
         self.optim_dict = optim_dict
-        
         if self.optim_dict["optimizer"] == 'SGD':
             self.optimizer = optim.SGD(
                 model.parameters(),
@@ -30,29 +30,30 @@ class Optimizer(object):
             )
         elif self.optim_dict["optimizer"] == 'Muon':
             muon_params = {
-                'lr': self.optim_dict['base_lr'],
+                'lr': self.optim_dict.get('base_lr', 1e-3),
+                # 'weight_decay': self.optim_dict.get('weight_decay', 0.0001),
                 'momentum': self.optim_dict.get('momentum', 0.95),
-                'nesterov': self.optim_dict.get('nesterov', True),
-                'backend': self.optim_dict.get('backend', 'newtonschulz5'),
-                'rank': self.optim_dict.get('rank', 1),
+                # 'nesterov': self.optim_dict.get('nesterov', True),
+                # 'backend': self.optim_dict.get('backend', 'newtonschulz5'),
+                # 'rank': self.optim_dict.get('rank', 1),
             }
             
-            if 'weight_decay' in self.optim_dict and self.optim_dict['weight_decay'] > 0:
-                try:
-                    test_params = list(model.parameters())[:1]
-                    test_optimizer = Muon(test_params, weight_decay=0.01, **muon_params)
-                    muon_params['weight_decay'] = self.optim_dict['weight_decay']
-                except TypeError:
-                    print("Warning: This version of Muon doesn't support weight_decay parameter")
-            
-            self.optimizer = Muon(model.parameters(), **muon_params)
+            # if 'weight_decay' in self.optim_dict and self.optim_dict['weight_decay'] > 0:
+            #     try:
+            #         test_params = list(model.parameters())[:1]
+            #         test_optimizer = Muon(test_params, weight_decay=0.01, **muon_params)
+            #         muon_params['weight_decay'] = self.optim_dict['weight_decay']
+            #     except TypeError:
+            #         print("Warning: This version of Muon doesn't support weight_decay parameter")
+            params = list(model.parameters())
+            self.optimizer = Muon(params, lr=muon_params['lr'], momentum=muon_params['momentum'])
         else:
             raise ValueError(f"Unsupported optimizer: {self.optim_dict['optimizer']}")
-        
+        print(f"Optimizer config: {self.optim_dict}," 
+              f" Optimizer instance: {self.optimizer}")
         self.scheduler = self.define_lr_scheduler(self.optimizer)
 
     def define_lr_scheduler(self, optimizer):
-        print(f"Using {self.optim_dict['scheduler']} scheduler")
         if self.optim_dict["optimizer"] in ['SGD', 'Adam', 'AdamW', 'Muon']:
             if self.optim_dict["scheduler"] == 'cosine':
                 lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -61,7 +62,6 @@ class Optimizer(object):
                     self.optim_dict['base_lr'] * 0.025
                 )
             elif self.optim_dict["scheduler"] == 'multistep':
-                print(f'Using MultiStepLR with milestones: {self.optim_dict["step"]}')
                 steps = self.optim_dict["step"]
                 lr_scheduler = optim.lr_scheduler.MultiStepLR(
                     optimizer,

@@ -37,6 +37,11 @@ class CosineAnnealingWarm():
 				param_group["lr"] = lr
 		return lr
 	
+	def load_state_dict(self, state_dict):
+		"""Load the scheduler state from a dict."""
+		for key, value in state_dict.items():
+			setattr(self, key, value)
+
 	def state_dict(self):
 		return {
 			'max_epoch': self.max_epoch,

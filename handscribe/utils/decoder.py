@@ -196,9 +196,6 @@ class SingleDecoderHead(nn.Module):
         else:
             raise ValueError("Unrecognized logits format.")
 
-        print(f"[DEBUG] pred_ids: {pred_ids}")
         pred_ids = pred_ids.to(self.mbart_model.device)
         response = self.mbart_tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
-        print(f"[DEBUG] Decoded logits response: {response}")
-        
         return response

@@ -83,7 +83,7 @@ def get_mbart_langs_dict():
 
 def get_mbart_details(mbart_id, source_lang=None, target_lang=None):
     mbart_lang_dict = get_mbart_model_dict()
-    model_name = mbart_lang_dict[mbart_id] if mbart_id in mbart_lang_dict else "facebook/mbart-large-mtm"
+    model_name = mbart_lang_dict[mbart_id] if mbart_id in mbart_lang_dict else "facebook/mbart-large-50-many-to-many-mmt"
     languages = get_mbart_languages_ids([source_lang, target_lang])
     return model_name, languages
 
@@ -96,8 +96,8 @@ def get_mbart_languages_ids(languages_to_use):
 def load_mbart(mbart_id="large-mtm", language_model=None):
     source_lang = target_lang = language_model if language_model else "German"
     mbart_model_name, mbart_languages = get_mbart_details(mbart_id, source_lang, target_lang)
-    mbart_tokenizer = MBartTokenizer.from_pretrained(mbart_model_name, src_lang=mbart_languages[0], tgt_lang=mbart_languages[1])
-    mbart_model = MBartForConditionalGeneration.from_pretrained(mbart_model_name)
+    mbart_tokenizer = MBartTokenizer.from_pretrained(mbart_model_name, src_lang=mbart_languages[0], tgt_lang=mbart_languages[1], local_files_only=True)
+    mbart_model = MBartForConditionalGeneration.from_pretrained(mbart_model_name, local_files_only=True)
     return mbart_model, mbart_tokenizer, mbart_languages
 
 
