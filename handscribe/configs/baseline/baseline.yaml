@@ -57,7 +57,7 @@ model_args:
 
 decoder: handscribe.utils.decoder.SingleDecoderHead
 decoder_args:
-  # projector_type:   GFProjectionLayer #GFResidualProjectionLayer
+  projector_type: GFProjectionLayer  # alternativa: GFResidualProjectionLayer
   projector_args:
     input_dim: 1024
     hidden_dim: 512
