@@ -27,7 +27,7 @@ class SeqKD(nn.Module):
         return loss
     
 class CrossEntropy(nn.Module):
-    def __init__(self, reduction='mean', label_smoothing=0.2, ignore_index=-100):
+    def __init__(self, reduction='mean', label_smoothing=0.1, ignore_index=-100):
         super(CrossEntropy, self).__init__()
         self.loss_fn = nn.CrossEntropyLoss(
             label_smoothing=label_smoothing, 
@@ -50,8 +50,11 @@ class CrossEntropy(nn.Module):
         if not isinstance(target_labels, torch.Tensor):
             raise TypeError(f"target_labels must be a torch.Tensor, got {type(target_labels)}")
         
-        device = target_labels.device
-        reshaped_logits = logits.contiguous().view(-1, num_classes).to(device)
+        device = logits.device
+        target_labels = target_labels.to(device)
+        
+        # Reshape logits to [batch_size * seq_len, num_classes]
+        reshaped_logits = logits.contiguous().view(-1, num_classes)
         
         # Handle different target label shapes
         if target_labels.dim() == 2:
@@ -59,26 +62,36 @@ class CrossEntropy(nn.Module):
             target_seq_len = target_labels.size(1)
             
             if target_seq_len > seq_len:
-                # If target is longer than prediction, truncate target
+                # Truncate target to match prediction length
                 reshaped_labels = target_labels[:, :seq_len].contiguous().view(-1)
             elif target_seq_len < seq_len:
-                padded_labels = torch.full((batch_size, seq_len), self.ignore_index,dtype=target_labels.dtype, device=device)
+                # Pad target with ignore_index
+                padded_labels = torch.full(
+                    (batch_size, seq_len), 
+                    self.ignore_index,
+                    dtype=target_labels.dtype, 
+                    device=device
+                )
                 padded_labels[:, :target_seq_len] = target_labels
                 reshaped_labels = padded_labels.contiguous().view(-1)
             else:
-                # If same length, just reshape
+                # Same length, just reshape
                 reshaped_labels = target_labels.contiguous().view(-1)
                 
         elif target_labels.dim() == 1:
-            # Case: target_labels has shape [batch_size*target_seq_len] or similar
+            # Case: target_labels already flattened
             target_len = target_labels.size(0)
             expected_len = batch_size * seq_len
             
             if target_len > expected_len:
-                # If target is longer than needed, truncate
                 reshaped_labels = target_labels[:expected_len]
             elif target_len < expected_len:
-                padded_labels = torch.full((expected_len,), self.ignore_index, dtype=target_labels.dtype, device=device)
+                padded_labels = torch.full(
+                    (expected_len,), 
+                    self.ignore_index, 
+                    dtype=target_labels.dtype, 
+                    device=device
+                )
                 padded_labels[:target_len] = target_labels
                 reshaped_labels = padded_labels
             else:
@@ -86,147 +99,299 @@ class CrossEntropy(nn.Module):
         else:
             raise ValueError(f"Unexpected target_labels dimension: {target_labels.dim()}")
         
+        # Validate label values
         valid_mask = (reshaped_labels >= 0) & (reshaped_labels < num_classes)
         invalid_mask = ~valid_mask & (reshaped_labels != self.ignore_index)
         
         if invalid_mask.any():
-            # print(f"Warning: Found {invalid_mask.sum()} out-of-bounds target values. Max target: {reshaped_labels.max()}, Vocab size: {num_classes}")
-            # Set out-of-bounds values to ignore_index
             reshaped_labels = reshaped_labels.clone()
             reshaped_labels[invalid_mask] = self.ignore_index
         
-        # print(f"Reshaped logits: {reshaped_logits.shape}, Reshaped labels: {reshaped_labels.shape}")
         return self.loss_fn(reshaped_logits, reshaped_labels)
 
 
-class CrossRougeEntropy(CrossEntropy):
+class CrossRougeEntropy(nn.Module):
     """
-    CrossEntropy loss with ROUGE-based weighting.
+    CrossEntropy loss with adaptive weighting based on prediction quality.
+    
+    This loss increases the penalty for samples where the model makes more errors,
+    encouraging the model to focus on harder examples.
+    
+    Key improvements:
+    1. Uses prediction confidence (entropy) instead of ROUGE to weight samples
+    2. Properly handles padding with ignore_index
+    3. More stable gradient flow
     """
 
-    def __init__(self, rouge_weight=1.0, label_smoothing=0.2, ignore_index=-100):
-        super(CrossRougeEntropy, self).__init__(reduction='none', label_smoothing=label_smoothing, ignore_index=ignore_index)
+    def __init__(self, rouge_weight=1.0, label_smoothing=0.1, ignore_index=-100, 
+                 focal_alpha=0.25, focal_gamma=2.0, use_focal=False):
+        super(CrossRougeEntropy, self).__init__()
         self.rouge_weight = rouge_weight
+        self.label_smoothing = label_smoothing
         self.ignore_index = ignore_index
+        self.use_focal = use_focal
+        self.focal_alpha = focal_alpha
+        self.focal_gamma = focal_gamma
+        
+        # Base loss function without reduction (we'll reduce manually)
+        self.loss_fn = nn.CrossEntropyLoss(
+            label_smoothing=label_smoothing,
+            reduction='none',
+            ignore_index=ignore_index
+        )
 
-    def compute_rouge(self, predictions, targets):
+    def compute_token_accuracy(self, predictions, targets):
         """
-        Compute a simplified ROUGE-like score between predictions and targets.
+        Compute per-sample token-level accuracy.
         
         Args:
-            predictions: Tensor of predicted token indices [batch_size, seq_len]
-            targets: Tensor of target token indices [batch_size, seq_len]
+            predictions: Predicted token indices [batch_size, seq_len]
+            targets: Target token indices [batch_size, seq_len]
             
         Returns:
-            Tensor of rouge scores per batch item [batch_size]
+            Accuracy scores per batch [batch_size], range [0, 1]
         """
         batch_size = predictions.size(0)
-        rouge_scores = torch.zeros(batch_size, device=targets.device)
+        accuracies = torch.zeros(batch_size, device=targets.device)
+        
+        for i in range(batch_size):
+            # Only consider non-padding tokens
+            valid_mask = targets[i] != self.ignore_index
+            if valid_mask.sum() == 0:
+                accuracies[i] = 1.0  # No valid tokens, no penalty
+                continue
+                
+            pred_valid = predictions[i][valid_mask]
+            target_valid = targets[i][valid_mask]
+            
+            # Calculate accuracy
+            matches = (pred_valid == target_valid).float().sum()
+            total = valid_mask.float().sum()
+            accuracies[i] = matches / total if total > 0 else 1.0
+                    
+        return accuracies
+
+    def compute_prediction_confidence(self, logits, targets):
+        """
+        Compute average prediction confidence for each sample.
+        Higher confidence = model is more certain about predictions.
+        
+        Args:
+            logits: Model logits [batch_size, seq_len, vocab_size]
+            targets: Target indices [batch_size, seq_len]
+            
+        Returns:
+            Confidence scores per batch [batch_size], range [0, 1]
+        """
+        batch_size, seq_len, vocab_size = logits.shape
+        probs = F.softmax(logits, dim=-1)
+        
+        # Get probability of predicted class
+        pred_probs = probs.gather(2, logits.argmax(dim=-1, keepdim=True)).squeeze(-1)
+        
+        confidences = torch.zeros(batch_size, device=targets.device)
         
         for i in range(batch_size):
             valid_mask = targets[i] != self.ignore_index
             if valid_mask.sum() == 0:
-                rouge_scores[i] = 1.0  # Default to 1.0 (no penalty) for empty targets
+                confidences[i] = 1.0
                 continue
                 
-            # Filter to only valid tokens
-            pred_valid = predictions[i][valid_mask]
-            target_valid = targets[i][valid_mask]
-            matches = (pred_valid == target_valid).float().sum()
-            total = valid_mask.float().sum()   
-            # Calculate Rouge-1 Precision-like score (matches / total)
-            rouge_scores[i] = matches / total if total > 0 else 1.0
-                    
-        return rouge_scores
-    
-    def _reshape_targets(self, target_labels, batch_size, seq_len):
-        """
-        Reshape target labels to match the expected dimensions [batch_size, seq_len].
-        This preserves the batch structure and only pads with 0s as needed.
+            # Average confidence over valid tokens
+            confidences[i] = pred_probs[i][valid_mask].mean()
         
-        Args:
-            target_labels: Input labels tensor (either 1D or 2D)
-            batch_size: Desired batch size
-            seq_len: Desired sequence length
+        return confidences
+
+    def _prepare_targets(self, target_labels, batch_size, seq_len, device):
+        """
+        Prepare target labels to match [batch_size, seq_len] format.
+        Pads with ignore_index instead of 0.
+        """
+        if target_labels.dim() == 2:
+            orig_batch, orig_seq = target_labels.size()
             
-        Returns:
-            Tensor of shape [batch_size, seq_len] with proper padding (0)
-        """
-        device = target_labels.device
-        padded_targets = torch.zeros((batch_size, seq_len), dtype=target_labels.dtype, device=device)
-        
-        # Handle 1D tensor case
-        if target_labels.dim() == 1:
-            # Reshape properly to preserve batch structure
+            if orig_batch == batch_size and orig_seq == seq_len:
+                return target_labels
+            
+            # Create padded tensor
+            padded = torch.full(
+                (batch_size, seq_len),
+                self.ignore_index,
+                dtype=target_labels.dtype,
+                device=device
+            )
+            
+            # Copy valid data
+            valid_batch = min(batch_size, orig_batch)
+            valid_seq = min(seq_len, orig_seq)
+            padded[:valid_batch, :valid_seq] = target_labels[:valid_batch, :valid_seq]
+            
+            return padded
+            
+        elif target_labels.dim() == 1:
+            # Reshape 1D to 2D preserving batch structure
+            padded = torch.full(
+                (batch_size, seq_len),
+                self.ignore_index,
+                dtype=target_labels.dtype,
+                device=device
+            )
+            
             total_elements = target_labels.size(0)
             
             for b in range(batch_size):
-                # Calculate start position for this batch
                 start_idx = b * seq_len
                 if start_idx >= total_elements:
                     break
                 
-                # Calculate how many elements we can copy
                 elements_to_copy = min(seq_len, total_elements - start_idx)
-                
-                # Copy elements to the right position
-                padded_targets[b, :elements_to_copy] = target_labels[start_idx:start_idx + elements_to_copy]
-        
-        # Handle 2D tensor case
-        elif target_labels.dim() == 2:
-            orig_batch, orig_seq = target_labels.size()
+                padded[b, :elements_to_copy] = target_labels[start_idx:start_idx + elements_to_copy]
             
-            # Copy as much as we can
-            valid_batch = min(batch_size, orig_batch)
-            valid_seq = min(seq_len, orig_seq)
-            
-            padded_targets[:valid_batch, :valid_seq] = target_labels[:valid_batch, :valid_seq]
-        
-        return padded_targets
+            return padded
+        else:
+            raise ValueError(f"Unexpected target dimension: {target_labels.dim()}")
 
     def forward(self, prediction_output, target_labels):
+        """
+        Compute weighted cross-entropy loss.
+        
+        The weight increases for samples where the model has:
+        - Lower prediction confidence (uncertain)
+        - Lower accuracy (making more mistakes)
+        
+        This creates an adaptive curriculum where harder samples get more attention.
+        """
         if not isinstance(target_labels, torch.Tensor):
             raise TypeError(f"target_labels must be a torch.Tensor, got {type(target_labels)}")
 
-        base_loss = super().forward(prediction_output, target_labels)
+        # Extract logits
         logits = prediction_output.logits if hasattr(prediction_output, 'logits') else prediction_output
-        device = target_labels.device
-        logits = logits.to(device)
+        batch_size, seq_len, vocab_size = logits.shape
+        device = logits.device
         
-        batch_size, seq_len, _ = logits.shape
+        # Prepare targets
+        target_labels = target_labels.to(device)
+        targets_2d = self._prepare_targets(target_labels, batch_size, seq_len, device)
         
-        if base_loss.dim() == 0:
-            return base_loss #scalar 
-        elif base_loss.dim() == 1:
-            # If base_loss is 1D with shape [batch_size * seq_len]
-            if base_loss.numel() == batch_size * seq_len:
-                base_loss = base_loss.view(batch_size, seq_len)
-            else:
-                return base_loss.mean() # Unexpected dimensions, return mean
-        elif base_loss.dim() == 2:
-            # Already has correct shape [batch_size, seq_len]
-            if base_loss.shape != (batch_size, seq_len):
-                return base_loss.mean()
-        else:
-            return base_loss.mean() # Unexpected dimensions, return mean
-
-        per_sample_loss = base_loss.sum(dim=1)
+        # Compute base loss (per-token)
+        logits_flat = logits.view(-1, vocab_size)
+        targets_flat = targets_2d.view(-1)
         
+        token_losses = self.loss_fn(logits_flat, targets_flat)  # [batch_size * seq_len]
+        
+        # Reshape to [batch_size, seq_len]
+        token_losses = token_losses.view(batch_size, seq_len)
+        
+        # Create mask for valid (non-padding) tokens
+        valid_mask = (targets_2d != self.ignore_index).float()
+        
+        # Compute per-sample loss (average over valid tokens)
+        sample_losses = (token_losses * valid_mask).sum(dim=1) / (valid_mask.sum(dim=1) + 1e-8)
+        
+        if self.rouge_weight == 0:
+            # No adaptive weighting, just return mean
+            return sample_losses.mean()
+        
+        # Compute adaptive weights based on prediction quality
         with torch.no_grad():
             predictions = torch.argmax(logits, dim=-1)
-            if target_labels.dim() == 1:
-                target_labels = self._reshape_targets(target_labels, batch_size, seq_len)
-            elif target_labels.size(1) != seq_len:
-                target_labels = self._reshape_targets(target_labels, batch_size, seq_len)
-
-            # Calculate rouge scores and weight factors
-            rouge_scores = self.compute_rouge(predictions, target_labels)
-            weight_factor = 1.0 + self.rouge_weight * (1.0 - rouge_scores)
-        
-        # Apply weights to per-sample losses - both should have shape [batch_size]
-        if per_sample_loss.shape != weight_factor.shape:
-            print(f"Warning: Shape mismatch in CrossRougeEntropy - per_sample_loss: {per_sample_loss.shape}, weight_factor: {weight_factor.shape}")
-            return per_sample_loss.mean()
             
-        weighted_loss = (per_sample_loss * weight_factor).mean()
-        return weighted_loss
+            # Option 1: Use token accuracy (lower accuracy = higher weight)
+            accuracies = self.compute_token_accuracy(predictions, targets_2d)
+            
+            # Option 2: Use prediction confidence (lower confidence = higher weight)
+            # confidences = self.compute_prediction_confidence(logits, targets_2d)
+            
+            # Create weight factor: samples with lower accuracy get higher weight
+            # weight_factor ranges from 1.0 to (1.0 + rouge_weight)
+            weight_factor = 1.0 + self.rouge_weight * (1.0 - accuracies)
+            
+            # Optional: Clip weights to prevent extreme values
+            weight_factor = torch.clamp(weight_factor, min=0.5, max=2.0)
+        
+        # Apply weights
+        weighted_losses = sample_losses * weight_factor
+        
+        # Optional: Apply focal loss-style weighting
+        if self.use_focal:
+            # Focal loss: down-weight easy examples
+            p = torch.exp(-sample_losses)  # Probability of correct prediction
+            focal_weight = self.focal_alpha * (1 - p) ** self.focal_gamma
+            weighted_losses = weighted_losses * focal_weight
+        
+        return weighted_losses.mean()
+
+
+class SimplifiedRougeEntropy(CrossEntropy):
+    """
+    Simplified version: Just add a small penalty term based on n-gram overlap.
+    This is more interpretable and stable than the full CrossRougeEntropy.
+    """
+    
+    def __init__(self, overlap_weight=0.1, label_smoothing=0.1, ignore_index=-100):
+        super().__init__(reduction='mean', label_smoothing=label_smoothing, ignore_index=ignore_index)
+        self.overlap_weight = overlap_weight
+    
+    def compute_unigram_overlap(self, predictions, targets):
+        """
+        Compute unigram overlap (similar to ROUGE-1 recall).
+        
+        Returns:
+            Overlap score per sample [batch_size], higher is better
+        """
+        batch_size = predictions.size(0)
+        overlaps = torch.zeros(batch_size, device=targets.device)
+        
+        for i in range(batch_size):
+            valid_mask = targets[i] != self.ignore_index
+            if valid_mask.sum() == 0:
+                overlaps[i] = 1.0
+                continue
+            
+            pred_set = set(predictions[i][valid_mask].cpu().tolist())
+            target_set = set(targets[i][valid_mask].cpu().tolist())
+            
+            if len(target_set) == 0:
+                overlaps[i] = 1.0
+            else:
+                overlap_count = len(pred_set & target_set)
+                overlaps[i] = overlap_count / len(target_set)
+        
+        return overlaps
+    
+    def forward(self, prediction_output, target_labels):
+        # Compute base cross-entropy loss
+        base_loss = super().forward(prediction_output, target_labels)
+        
+        if self.overlap_weight == 0:
+            return base_loss
+        
+        # Extract info for overlap computation
+        logits = prediction_output.logits if hasattr(prediction_output, 'logits') else prediction_output
+        batch_size, seq_len, _ = logits.shape
+        
+        # Prepare targets
+        device = logits.device
+        target_labels = target_labels.to(device)
+        
+        if target_labels.dim() == 1:
+            targets_2d = target_labels.view(batch_size, -1)
+            if targets_2d.size(1) < seq_len:
+                padded = torch.full((batch_size, seq_len), self.ignore_index, 
+                                  dtype=target_labels.dtype, device=device)
+                padded[:, :targets_2d.size(1)] = targets_2d
+                targets_2d = padded
+            elif targets_2d.size(1) > seq_len:
+                targets_2d = targets_2d[:, :seq_len]
+        else:
+            targets_2d = target_labels
+        
+        # Compute overlap penalty
+        with torch.no_grad():
+            predictions = torch.argmax(logits, dim=-1)
+            overlaps = self.compute_unigram_overlap(predictions, targets_2d)
+            
+            # Penalty increases when overlap is low
+            overlap_penalty = self.overlap_weight * (1.0 - overlaps).mean()
+        
+        return base_loss + overlap_penalty
