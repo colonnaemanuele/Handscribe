@@ -1,0 +1,62 @@
+wandb:
+  wandb_project: GFSlowFastSign
+  wandb_entity: carp1
+  wandb_mode: offline
+feeder: dataset.dataloader_video.BaseFeeder
+phase: train
+num_epoch: 80
+work_dir: GFSlowFastSign/work_dir/HigherLR_cosine/
+batch_size: 2
+random_seed: 42
+test_batch_size: 2
+num_worker: 8
+device: 0
+log_interval: 100
+eval_interval: 1
+save_interval: 5
+# python in default
+evaluate_tool: python
+loss_weights:
+  Slow: 0.25
+  Fast: 0.25
+  CrossEntropy: 0.5
+  CrossRougeEntropy: 0.5
+#load_weights: ''
+
+optimizer_args:
+  optimizer: AdamW
+  base_lr: 0.0005  # 5x higher
+  scheduler: "warmup_cosine"
+  warmup_epochs: 10  # Longer warmup for higher LR
+  warmup_start_lr: 0.00001
+  weight_decay: 0.01  # Higher weight decay
+  start_epoch: 0
+
+feeder_args:
+  mode: 'train'
+  datatype: 'video'
+  num_gloss: -1
+  drop_ratio: 1.0
+  frame_interval: 1
+  image_scale: 1.0  # 0-1 represents ratio, >1 represents absolute value
+  input_size: 224
+
+model: slt_network_multi.SLTModel
+slowfast_config: SLOWFAST_64x2_R101_50_50.yaml
+model_args:
+  num_classes: 1296
+  c2d_type: slowfast101 #resnet18, mobilenet_v2, squeezenet1_1, shufflenet_v2_x1_0, efficientnet_b1, mnasnet1_0, regnet_y_800mf, vgg16_bn, vgg11_bn, regnet_x_800mf, regnet_x_400mf, densenet121, regnet_y_1_6gf
+  conv_type: 2
+  use_bn: 1
+  share_classifier: 1
+  weight_norm: False
+
+decoder: GFSlowFastSign.utils.decoder.SingleDecoderHead
+decoder_args:
+  # projector-type: GFResidualProjectionLayer  # GFProjectionLayer
+  projector_args:
+    input_dim: 1024
+    hidden_dim: 512
+    mbart_dim: 1024
+    nhead: 4
+    num_layers: 1

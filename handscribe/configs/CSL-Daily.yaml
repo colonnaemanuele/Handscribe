@@ -1,0 +1,3 @@
+dataset_root: GFSlowFastSign/dataset/CSL-Daily/sentence/frames_256x256
+evaluation_dir: ./evaluation/slr_eval
+evaluation_prefix: CSL-Daily-groundtruth
