@@ -7,9 +7,16 @@ from slt_network_multi import SLTModel
 class SLTModelParallel(SLTModel):
     def __init__(self, *args, **kwargs):
         super(SLTModelParallel, self).__init__(*args, **kwargs)
+        self.is_model_parallel = True
+
+        # Se è disponibile una sola GPU, degradiamo a single-device (dev1 == dev0)
+        # così la stessa configurazione gira anche senza la seconda GPU.
+        n_gpus = torch.cuda.device_count()
         self.dev0 = torch.device('cuda:0')
-        self.dev1 = torch.device('cuda:1')
-        
+        self.dev1 = torch.device('cuda:1' if n_gpus >= 2 else 'cuda:0')
+        if n_gpus < 2:
+            print(f"[ModelParallel] Solo {n_gpus} GPU disponibili: fallback single-device su {self.dev0}")
+
         print(f"[ModelParallel] Moving Video Encoder to {self.dev0}")
         print(f"[ModelParallel] Moving MBART & Decoders to {self.dev1}")
 
@@ -85,7 +92,7 @@ class SLTModelParallel(SLTModel):
             
             # Decoder (mBART) su GPU 1
             # Nota: gt_sentences sono stringhe, non serve .to(device)
-            decoder_output = self.decoders[i](tm_output['predictions'], gt_sentences, inference=not self.training)
+            decoder_output = self.decoders[i](tm_output['predictions'], gt_sentences, inference=not self.training, feat_len=lgt)
             decoder_outputs.append(decoder_output)
 
         # 5. INFERENCE LOGIC (GPU 1)
@@ -109,71 +116,41 @@ class SLTModelParallel(SLTModel):
         }
 
     def criterion_calculation(self, ret_dict, label=None, label_lgt=None, gt_sentences=None):
-        # Override per gestire label su device diversi
-        
-        if label is None: raise ValueError("label cannot be None.")
-        
-        # I logits principali (mBART) sono su GPU 1
-        # Quindi spostiamo le label su GPU 1 per calcolare la loss testuale
-        label = label.to(self.dev1)
-        
-        # Le loss interne usano self.loss['CrossEntropy'] ecc.
-        # Assicuriamoci che i pesi delle loss siano corretti o stateless
-        
-        # Eseguiamo il calcolo usando il metodo originale, ma con label spostata
-        # ATTENZIONE: conv_logits sono su GPU 0. Se hai loss ausiliarie su conv_logits, 
-        # questo metodo base fallirà perché label è su GPU 1 e conv_logits su GPU 0.
-        
-        # Soluzione Custom per Multi-Device Loss:
-        total_loss = torch.tensor(0.0).to(self.dev1)
-        loss_components = {}
-        
-        # Estrai output
-        sequence_logits = ret_dict["sequence_logits"] # GPU 1
-        
-        # Helper interno bindato al device corretto
-        def compute_loss_on_device(logits, targets, loss_fn_key):
-            # Porta targets dove sono i logits
-            target_dev = logits.device
-            t = targets.to(target_dev)
-            
-            # Calcola loss
-            if loss_fn_key == 'CrossEntropy':
-                loss = self.loss['CrossEntropy'](logits, t)
-                if loss.dim() > 0: loss = loss.mean()
-                return loss
-            elif loss_fn_key == 'CrossRougeEntropy':
-                return self.loss['CrossRougeEntropy'](logits, t)
-            return torch.tensor(0.0).to(target_dev)
+        # Le loss testuali usano come target `mbart_output.text_labels` (token mBART già su GPU 1),
+        # quindi non serve spostare il `label` a vocabolario custom.
+        if not self.loss_weights or not isinstance(self.loss_weights, dict):
+            raise ValueError("loss_weights must be a non-empty dictionary.")
 
-        # Ciclo sui pesi (copiato e adattato dal tuo slt_network_multi.py)
+        total_loss = torch.zeros((), device=self.dev1)
+        loss_components = {}
+
+        sequence_logits = ret_dict["sequence_logits"]  # su GPU 1
+
+        def ce_loss(mbart_output):
+            loss = self.loss['CrossEntropy'](mbart_output, mbart_output.text_labels)
+            if loss.dim() > 0:
+                loss = loss.mean()
+            return loss.to(self.dev1)
+
+        def rouge_loss(mbart_output):
+            return self.loss['CrossRougeEntropy'](mbart_output, mbart_output.text_labels).to(self.dev1)
+
         for k, weight in self.loss_weights.items():
             if k in ['Slow', 'Fast']:
                 i = 1 if k == 'Slow' else 2
-                if 'CrossEntropy' in self.loss_weights:
-                    # sequence_logits[i] è su GPU 1
-                    loss = compute_loss_on_device(sequence_logits[i], label, 'CrossEntropy')
-                    loss_val = loss.to(self.dev1) * weight
+                if i < len(sequence_logits) and 'CrossEntropy' in self.loss_weights:
+                    loss_val = ce_loss(sequence_logits[i]) * weight
                     loss_components[f'{k}_CrossEntropy'] = loss_val
-                    total_loss += loss_val
+                    total_loss = total_loss + loss_val
 
             elif k == 'CrossEntropy':
-                # Main output (GPU 1)
-                loss = compute_loss_on_device(sequence_logits[0], label, 'CrossEntropy')
-                loss_val = loss.to(self.dev1) * self.loss_weights['CrossEntropy']
+                loss_val = ce_loss(sequence_logits[0]) * weight
                 loss_components['CrossEntropy_Main'] = loss_val
-                total_loss += loss_val
+                total_loss = total_loss + loss_val
 
             elif k == 'CrossRougeEntropy':
-                # Main output (GPU 1)
-                loss = compute_loss_on_device(sequence_logits[0], label, 'CrossRougeEntropy')
-                loss_val = loss.to(self.dev1) * self.loss_weights['CrossRougeEntropy']
+                loss_val = rouge_loss(sequence_logits[0]) * weight
                 loss_components['CrossRougeEntropy'] = loss_val
-                total_loss += loss_val
-
-        # Se avessi loss su conv_logits (CTC?), dovresti gestirle qui spostando label su GPU 0
-        if "conv_logits" in ret_dict and ret_dict["conv_logits"] is not None:
-             # Esempio ipotetico se usassi CTC loss sui conv_logits (che sono su GPU 0)
-             pass
+                total_loss = total_loss + loss_val
 
         return total_loss, loss_components

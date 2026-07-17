@@ -8,73 +8,85 @@ from handscribe.utils.helper import _is_loss_valid, _log_nan_debug_info
 from handscribe.evaluation.slr_eval.rouge_blue_calculation import compute_rouge_bleu_batch
 from torch.amp.autocast_mode import autocast as autocast
 
+def _optimizer_step(optimizer, model, scaler):
+    """Unscale, clip e step: fattorizzato per riuso tra il ciclo e il flush finale."""
+    scaler.unscale_(optimizer.optimizer)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5)
+    scaler.step(optimizer.optimizer)
+    scaler.update()
+    optimizer.zero_grad()
+
+
 def seq_train(loader, model, optimizer, device, epoch_idx, recoder, scaler):
     model.train()
     loss_value = []
-    
+
     accumulation_steps = 2
-    
+
     clr = [group['lr'] for group in optimizer.optimizer.param_groups]
     tqdm_loader = tqdm(loader, ncols=100)
     nan_count = 0
-    
+    accum_counter = 0                                       # micro-batch accumulati dall'ultimo step
+    optimizer.zero_grad()
+
     for batch_idx, data in enumerate(tqdm_loader):
-        vid = device.data_to_device(data[0])                # frame folder
-        vid_lgt = device.data_to_device(data[1])            # frame length
-        label = data[2]                                     # tokenized sentence
-        label_lgt = data[3]                                 # gloss
-        gt_sentences = [s.split('|')[-1] for s in data[4]]  # sentences    
-        
-        optimizer.zero_grad()
+        vid = device.data_to_device(data[0])                # padded video (B, C, T, H, W)
+        vid_lgt = device.data_to_device(data[1])            # lunghezze video
+        label = device.data_to_device(data[2])              # target paddati (vocab custom, usati in modalità gloss)
+        label_lgt = device.data_to_device(data[3])          # lunghezze dei target
+        gt_sentences = [s.split('|')[-1] for s in data[4]]  # frasi ground-truth (target SLT)
+
         with autocast(device_type=device.device_type):
             ret_dict = model(vid, vid_lgt, gt_sentences=gt_sentences)
-            loss = model.criterion_calculation(ret_dict, label, label_lgt, gt_sentences)
+            loss, loss_components = model.criterion_calculation(ret_dict, label, label_lgt, gt_sentences)
 
-        wandb.log({
-            "predicted_sents": ret_dict.get('recognized_sents', []),
-            "gt_sents": gt_sentences
-        })
-        
         if not _is_loss_valid(loss):
             nan_count += 1
             _log_nan_debug_info(batch_idx, epoch_idx, ret_dict, recoder)
+            optimizer.zero_grad()          # scarta gradienti parziali contaminati
+            accum_counter = 0
             torch.cuda.empty_cache()
-            
+
             if nan_count >= 30:
                 recoder.print_log("Too many NaN losses, stopping training")
                 raise ValueError("Training stopped due to excessive NaN losses")
             continue
-        
-        scaler.scale(loss).backward()
-        if (batch_idx + 1) % accumulation_steps == 0:
-            scaler.unscale_(optimizer.optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5)
-            scaler.step(optimizer.optimizer)
-            scaler.update()
-            optimizer.zero_grad()
+
+        # Scala la loss per l'accumulazione così che il gradiente medio sia corretto.
+        scaler.scale(loss / accumulation_steps).backward()
+        accum_counter += 1
+        if accum_counter == accumulation_steps:
+            _optimizer_step(optimizer, model, scaler)
+            accum_counter = 0
+
         loss_item = loss.item()
-        
+        loss_value.append(loss_item)
+
         wandb.log({
             "train/loss": loss_item,
             "train/lr": clr[0],
             "epoch": epoch_idx,
-            "batch": batch_idx
+            "batch": batch_idx,
+            **{f"train/{k}": (v.item() if hasattr(v, 'item') else v) for k, v in loss_components.items()},
         })
-        
-        loss_value.append(loss.item())
+
         del ret_dict
-        
+
         if batch_idx % recoder.log_interval == 0:
             recoder.print_log(
                 f'\tEpoch: {epoch_idx}, Batch({batch_idx}/{len(loader)}) done. '
                 f'Loss: {loss_item:.8f} LR: {clr[0]:.8f}'
             )
         tqdm_loader.set_postfix({'Loss': loss_item})
-        
+
         if batch_idx % 10 == 0:
             gc.collect()
             torch.cuda.empty_cache()
-                
+
+    # Flush dei gradienti accumulati nell'ultima finestra incompleta.
+    if accum_counter > 0:
+        _optimizer_step(optimizer, model, scaler)
+
     optimizer.scheduler.step()
     mean_loss = np.mean(loss_value) if loss_value else float('inf')
     wandb.log({"train/epoch_mean_loss": mean_loss, "epoch": epoch_idx})
@@ -212,11 +224,21 @@ def seq_feature_generation(loader, model, device, mode, work_dir, recoder):
 
 
 def write2file(path, info, output):
-    """Write predictions to CTM format file"""
+    """Scrive le predizioni in formato CTM.
+
+    `output` è una lista di frasi predette (stringhe) per la SLT, oppure una lista di
+    liste di token per la SLR. In entrambi i casi tokenizziamo a livello di parola.
+    """
     with open(path, "w") as f:
         for sample_idx, sample in enumerate(output):
-            for word_idx, word in enumerate(sample):
+            if isinstance(sample, str):
+                words = sample.split()
+            else:
+                words = sample
+            for word_idx, word in enumerate(words):
+                # In modalità SLR ogni token può essere una coppia (gloss, ...): prendine il testo.
+                token = word[0] if isinstance(word, (list, tuple)) else word
                 f.write(
                     f"{info[sample_idx]} 1 {word_idx * 1.0 / 100:.2f} "
-                    f"{(word_idx + 1) * 1.0 / 100:.2f} {word[0]}\n"
+                    f"{(word_idx + 1) * 1.0 / 100:.2f} {token}\n"
                 )

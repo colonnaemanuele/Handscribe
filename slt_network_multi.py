@@ -48,6 +48,7 @@ class SLTModel(nn.Module):
     ):
         super(SLTModel, self).__init__()
         self.loss = dict()
+        self.is_model_parallel = False
         self.num_classes = num_classes
         self.loss_weights = loss_weights if loss_weights else {}
         self.backbone_type = backbone  # <-- salva il tipo
@@ -165,7 +166,7 @@ class SLTModel(nn.Module):
                 visual_feat = visual_feat_list[i]
                 tm_output = self.temporal_model[i](visual_feat, lgt)
                 tm_outputs.append(tm_output)
-                decoder_output = self.decoders[i](tm_output['predictions'], gt_sentences, inference=not self.training)
+                decoder_output = self.decoders[i](tm_output['predictions'], gt_sentences, inference=not self.training, feat_len=lgt)
                 decoder_outputs.append(decoder_output)
 
             pred = None
@@ -188,7 +189,7 @@ class SLTModel(nn.Module):
             tm_output = self.temporal_model(visual_feat, lgt)
 
             # Process through decoder
-            decoder_output = self.decoder(tm_output['predictions'], gt_sentences, inference=not self.training)
+            decoder_output = self.decoder(tm_output['predictions'], gt_sentences, inference=not self.training, feat_len=lgt)
 
             # Generate predictions during inference
             pred = None
@@ -209,78 +210,86 @@ class SLTModel(nn.Module):
             "tm_outputs": tm_output_result
         }
 
+    @staticmethod
+    def _output_device(mbart_output):
+        """Device su cui vivono i logit/loss del decoder (unica sorgente per total_loss)."""
+        if hasattr(mbart_output, 'logits') and mbart_output.logits is not None:
+            return mbart_output.logits.device
+        if hasattr(mbart_output, 'loss') and mbart_output.loss is not None:
+            return mbart_output.loss.device
+        return mbart_output.device
+
+    def _ce_loss(self, mbart_output):
+        # Il target sono gli STESSI token mBART usati dal decoder (mbart_output.text_labels),
+        # non più il vocabolario custom del dataloader.
+        loss = self.loss['CrossEntropy'](mbart_output, mbart_output.text_labels)
+        if loss.dim() > 0:
+            loss = loss.mean()
+        return loss
+
+    def _rouge_loss(self, mbart_output):
+        return self.loss['CrossRougeEntropy'](mbart_output, mbart_output.text_labels)
+
     def criterion_calculation(self, ret_dict, label=None, label_lgt=None, gt_sentences=None):
         """
         Calcola la loss totale e la scomposizione per componente.
 
+        Il target è sempre la tokenizzazione mBART di gt_sentences (attaccata come
+        `text_labels` al Seq2SeqLMOutput dal decoder), così logits e target sono coerenti.
+        L'argomento `label` (tokenizzazione a vocabolario custom) è mantenuto per
+        compatibilità con la modalità gloss/feature ma non viene usato per le loss testuali.
+
         Returns:
             Tuple (total_loss, loss_components_dict)
         """
-        if label is None:
-            raise ValueError("label cannot be None.")
-        if gt_sentences is None:
-            raise ValueError("gt_sentences must be provided for text generation training.")
         if not self.loss_weights or not isinstance(self.loss_weights, dict):
             raise ValueError("loss_weights must be a non-empty dictionary.")
 
-        device = label.device
         loss_components = {}
-        total_loss = torch.tensor(0.0).to(device)
-
-        def compute_cross_entropy_loss(mbart_output, label):
-            loss = self.loss['CrossEntropy'](mbart_output, label)
-            if loss.dim() > 0:
-                loss = loss.mean()
-            return loss
-
-        def compute_cross_rouge_loss(mbart_output, label):
-            return self.loss['CrossRougeEntropy'](mbart_output, label)
 
         if self.decoder_mode == 'ensemble':
             sequence_logits = ret_dict["sequence_logits"]
             mbart_output = sequence_logits[0]
+            device = self._output_device(mbart_output)
+            total_loss = torch.zeros((), device=device)
 
             for k, weight in self.loss_weights.items():
                 if k in ['Slow', 'Fast']:
                     i = 1 if k == 'Slow' else 2
-                    if 'CrossEntropy' in self.loss_weights:
-                        ce_loss = compute_cross_entropy_loss(sequence_logits[i], label)
-                        loss_value = ce_loss * weight
+                    if i < len(sequence_logits) and 'CrossEntropy' in self.loss_weights:
+                        loss_value = self._ce_loss(sequence_logits[i]) * weight
                         loss_components[f'{k}_CrossEntropy'] = loss_value
                         total_loss = total_loss + loss_value
 
                 elif k == 'CrossEntropy':
-                    ce_loss_value = compute_cross_entropy_loss(mbart_output, label)
-                    loss_value = ce_loss_value * self.loss_weights['CrossEntropy']
+                    loss_value = self._ce_loss(mbart_output) * weight
                     loss_components['CrossEntropy_Main'] = loss_value
                     total_loss = total_loss + loss_value
 
                 elif k == 'CrossRougeEntropy':
-                    rouge_loss_value = compute_cross_rouge_loss(mbart_output, label)
-                    loss_value = rouge_loss_value * self.loss_weights['CrossRougeEntropy']
+                    loss_value = self._rouge_loss(mbart_output) * weight
                     loss_components['CrossRougeEntropy'] = loss_value
                     total_loss = total_loss + loss_value
         else:
             mbart_output = ret_dict["sequence_logits"]
+            device = self._output_device(mbart_output)
+            total_loss = torch.zeros((), device=device)
 
             if 'CrossEntropy' in self.loss_weights:
-                ce_loss = compute_cross_entropy_loss(mbart_output, label)
-                weight = self.loss_weights['CrossEntropy']
-                loss_value = ce_loss * weight
+                loss_value = self._ce_loss(mbart_output) * self.loss_weights['CrossEntropy']
                 loss_components['CrossEntropy'] = loss_value
                 total_loss = total_loss + loss_value
 
             if 'CrossRougeEntropy' in self.loss_weights:
-                rouge_loss = compute_cross_rouge_loss(mbart_output, label)
-                weight = self.loss_weights['CrossRougeEntropy']
-                loss_value = rouge_loss * weight
+                loss_value = self._rouge_loss(mbart_output) * self.loss_weights['CrossRougeEntropy']
                 loss_components['CrossRougeEntropy'] = loss_value
                 total_loss = total_loss + loss_value
 
         return total_loss, loss_components
 
     def criterion_init(self):
-        pad_token_id = self.mbart_tokenizer.pad_token_id
-        self.loss['CrossEntropy'] = CrossEntropy(ignore_index=pad_token_id, reduction='none')
-        self.loss['CrossRougeEntropy'] = CrossRougeEntropy(rouge_weight=1.0, label_smoothing=0.1, ignore_index=pad_token_id)
+        # I labels usano -100 come indice di padding (coerente con il masking fatto nel decoder
+        # e con la loss interna di mBART).
+        self.loss['CrossEntropy'] = CrossEntropy(ignore_index=-100, reduction='none')
+        self.loss['CrossRougeEntropy'] = CrossRougeEntropy(rouge_weight=1.0, label_smoothing=0.1, ignore_index=-100)
         return self.loss
