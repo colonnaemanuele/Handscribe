@@ -1,9 +1,8 @@
 import os
 # Set this here, while in notebooks just before the trainer.train(): https://github.com/unslothai/unsloth/issues/1530
 # Environmental flags: https://docs.unsloth.ai/basics/errors-troubleshooting/unsloth-environment-flags
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
-os.environ["UNSLOTH_COMPILE_DISABLE"]  = "1"  
+# os.environ["UNSLOTH_COMPILE_DISABLE"]  = "1" # Uncomment only when debugging
 
 import unsloth
 import argparse
@@ -24,41 +23,9 @@ from unsloth_utils import (
     load_data,
 )
 
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Fine-tune a model on a sign language recognition dataset.")
-    parser.add_argument(
-        "--max_seq_length", type=int, default=DEF_MAX_SEQ_LENGTH, help="Maximum sequence length for the model."
-        )
-    parser.add_argument(
-        "--llm_to_tune", type=str, default=AVAILABLE_MODELS[1], help="The model to fine-tune.", choices=AVAILABLE_MODELS
-        )
-    parser.add_argument(
-        "--data_csv_path", type=str, default=GER_TRAIN_CSV, help="Path to the training CSV file."
-        )
-    parser.add_argument(
-        "--data_language", type=str, default="German", help="Language of the training data."
-        )
-    parser.add_argument(
-        "--use_data_subset", action="store_true", help="Use a subset of the data for training."
-        )
-    parser.add_argument(
-        "--subset_amount", type=int, default=1000, help="Number of samples to use from the dataset."
-        )
-    parser.add_argument(
-        "--out_dir", type=str, default="./ft_output", help="Output directory for the fine-tuned model."
-        )
-    parser.add_argument(
-        "--load_4bit", action="store_true", help="Load the model in 4-bit precision."
-        )
-    
-    args, _ = parser.parse_known_args()
-    args.data_language = "German" if args.data_csv_path == GER_TRAIN_CSV else "English"
-    return vars(args)
-
   
 def setup_fastllm(model, llora_rank=16, max_seq_length=2048):
-    # Settings only for Gemma
+    # Gemma Settings
     if model.config.model_type == "gemma":
         return FastModel.get_peft_model(
                 model,
@@ -73,7 +40,7 @@ def setup_fastllm(model, llora_rank=16, max_seq_length=2048):
                 bias = "none",
                 random_state = 3407,
             )
-    # Settings for LLaMa and Qwen
+    # LLaMa and Qwen Settings
     else:
         return FastLanguageModel.get_peft_model(
             model,
@@ -185,6 +152,22 @@ def setup_trainer(model, tokenizer, train_data, ft_config, llm_name="llama"):
     return trainer
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fine-tune a model on a sign language recognition dataset.")
+    parser.add_argument("--max_seq_length", type=int, default=DEF_MAX_SEQ_LENGTH, help="Maximum sequence length for the model.")
+    parser.add_argument("--llm_to_tune", type=str, default=AVAILABLE_MODELS[1], help="The model to fine-tune.", choices=AVAILABLE_MODELS)
+    parser.add_argument("--data_csv_path", type=str, default=GER_TRAIN_CSV, help="Path to the training CSV file.")
+    parser.add_argument("--data_language", type=str, default="German", help="Language of the training data.")
+    parser.add_argument("--use_data_subset", action="store_true", help="Use a subset of the data for training.")
+    parser.add_argument("--subset_amount", type=int, default=1000, help="Number of samples to use from the dataset.")
+    parser.add_argument("--out_dir", type=str, default="./ft_output", help="Output directory for the fine-tuned model.")
+    parser.add_argument("--load_4bit", action="store_true", help="Load the model in 4-bit precision.")
+    
+    args, _ = parser.parse_known_args()
+    args.data_language = "German" if args.data_csv_path == GER_TRAIN_CSV else "English"
+    return vars(args)
+
+
 def tune_llm():
     
     args = parse_args()
@@ -200,18 +183,15 @@ def tune_llm():
 
     ft_config = get_stft_config()
     
-    model, tokenizer = load_unsloth_model(
-        chosen_llm, seq_len=2048, load_in_4bit=False, full_FT=False
-    )
-
+    model, tokenizer = load_unsloth_model(chosen_llm, seq_len=2048, load_in_4bit=False, full_FT=False)
     model = setup_fastllm(model, llora_rank=16, max_seq_length=args['max_seq_length'])
 
-    train_data = preprocess_data(df, tokenizer, 
-                                 args['use_data_subset'], args['subset_amount'],
-                                 llm_name=extract_model_name(args['llm_to_tune']))
+    train_data = preprocess_data(
+        df, tokenizer, args['use_data_subset'], args['subset_amount'], 
+        llm_name=extract_model_name(args['llm_to_tune'])
+    )
 
     trainer = setup_trainer(model, tokenizer, train_data, ft_config, llm_name=extract_model_name(args['llm_to_tune']))
-
     trainer.train() # type: ignore
 
     # Save the model and tokenizer

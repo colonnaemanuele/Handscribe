@@ -1,19 +1,26 @@
 [project]
 name = "handscribe"
 version = "0.1.2"
-description = "Sign Language Recognition System"
+description = "handscribe: A Gloss-Free Framework for Sign Language Translation and Gloss Sequence Generation"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "accelerate==1.14.0",
+    "bitsandbytes==0.49.2",
+    "datasets==4.3.0",
+    "diffusers==0.33.1",
     "easydict>=1.13",
     "fvcore>=0.1.5.post20221221",
+    "huggingface-hub==0.30.2",
     "ipykernel>=6.29.5",
+    "jiwer==4.0.0",
     "lovely-tensors>=0.1.18",
     "muon-optimizer>=0.1.0",
     "numpy>=2.2.4",
     "opencv-python>=4.11.0.86",
     "optuna>=4.4.0",
     "pandas>=2.2.3",
+    "peft==0.19.1",
     "pillow>=11.1.0",
     "pip>=25.0.1",
     "pyarrow>=19.0.1",
@@ -21,15 +28,22 @@ dependencies = [
     "rouge-score>=0.1.2",
     "ruamel-yaml>=0.18.14",
     "ruff>=0.11.2",
+    "safetensors==0.5.3",
     "scipy>=1.15.2",
     "sentencepiece>=0.2.0",
     "six>=1.17.0",
     "streamlit>=1.47.1",
-    "torch>=2.6.0",
+    "torch==2.6.0",
     "torchtext>=0.18.0",
-    "torchvision>=0.21.0",
+    "torchvision==0.21.0",
     "tqdm>=4.67.1",
     "transformers>=4.51.3",
+    "triton==3.2.0",
+    "trl==0.15.2",
+    "typing-extensions==4.13.0",
+    "unsloth==2025.3.19",
+    "unsloth-zoo==2025.4.4",
     "wandb>=0.21.0",
     "wget>=3.2",
+    "xformers==0.0.29.post3",
 ]

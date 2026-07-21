@@ -1,7 +1,7 @@
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
-# os.environ["UNSLOTH_COMPILE_DISABLE"]  = "1"
+# os.environ["UNSLOTH_COMPILE_DISABLE"]  = "1" # Uncomment only when debugging
+
 import argparse
 from tqdm import tqdm
 from torch import inference_mode
@@ -24,24 +24,12 @@ from unsloth_utils import (
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune a model on a sign language recognition dataset.")
-    parser.add_argument(
-        "--max_seq_length", type=int, default=DEF_MAX_SEQ_LENGTH, help="Maximum sequence length for the model."
-        )
-    parser.add_argument(
-        "--llm_to_use", type=str, help="The model to fine-tune.", choices=TUNED_MODELS
-        )
-    parser.add_argument(
-        "--data_csv_path", type=str, default=GER_TEST_CSV, help="Path to the training CSV file."
-        )
-    parser.add_argument(
-        "--data_language", type=str, default="German", help="Language of the training data."
-        )
-    parser.add_argument(
-        "--sentences_to_test", type=int, default=0, help="Number of sentences to test."
-    )
-    parser.add_argument(
-        "--use_streamer", action='store_true', help="Number of sentences to test."
-    )
+    parser.add_argument("--max_seq_length", type=int, default=DEF_MAX_SEQ_LENGTH, help="Maximum sequence length for the model.")
+    parser.add_argument("--llm_to_use", type=str, help="The fine-tuned model to use (use same id used for fine-tuning).", choices=TUNED_MODELS)
+    parser.add_argument("--data_csv_path", type=str, default=GER_TEST_CSV, help="Path to the training CSV file.")
+    parser.add_argument("--data_language", type=str, default="German", help="Language of the training data.")
+    parser.add_argument("--sentences_to_test", type=int, default=0, help="Number of sentences to test.")
+    parser.add_argument("--use_streamer", action='store_true', help="Number of sentences to test.")
     
     args, _ = parser.parse_known_args()
     args.data_language = "German" if args.data_csv_path == GER_TEST_CSV else "English"
@@ -65,15 +53,20 @@ def get_gen_kwargs(llm_name="llama"):
 def run_inference():
     
     args = parse_args()
+    if args['llm_to_use'] is None:
+        raise ValueError("Please specify a model to use with --llm_to_use. Available models: {}".format(TUNED_MODELS))
 
     print(f'Using the tuned model called: {args['llm_to_use']}')
     llm_name = extract_model_name(args['llm_to_use'])
     gen_kwargs = get_gen_kwargs(llm_name)
+    print(f'Will load data from: {args['data_csv_path']}')
     
     # Load data and retrieve test sentences
     if 'phoenix' in args['data_csv_path'].lower():
+        print('Detected Phoenix dataset based on CSV file name.')
         df = load_data(args['data_csv_path'], args['data_language'])
     else:
+        print('Detected non-Phoenix dataset based on CSV file name.')
         df = load_data(args['data_csv_path'], args['data_language'], "___")
     
     # Retrieve GT glossess and remove "The gloss is:" prefix
@@ -116,6 +109,13 @@ def run_inference():
         
             gen_sent = tokenizer.decode(gen_sent[0], skip_special_tokens=True)
             gen_sents.append(gen_sent.split('The gloss is:')[1].strip())
+            
+            print(f'Input: {sen} || GT: {ground_truths[len(gen_sents)-1]}\n'
+                  f'Gen: {gen_sents[len(gen_sents)-1]}\n')
+            
+            wer = compute_wer(ground_truths[len(gen_sents)-1], gen_sent)
+            cer = compute_cer(ground_truths[len(gen_sents)-1], gen_sent)
+            print(f'WER: {wer} || CER: {cer}\n')
     
     avg_wer = compute_wer(ground_truths, gen_sents)
     avg_cer = compute_cer(ground_truths, gen_sents)
