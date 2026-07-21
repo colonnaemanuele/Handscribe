@@ -1,7 +1,7 @@
 <!-- ## Features
 
 - **SlowFast Network Integration**: Implements SlowFast models for video-based CSLR.
-- **Dataset Support**: Includes preprocessing scripts for datasets like CSL, CSL-Daily, LIS, and PHOENIX-2014-T.
+- **Dataset Support**: Includes preprocessing scripts for datasets like PHOENIX-2014-T.
 - **Evaluation Tools**: Provides Word Error Rate (WER) calculation for model evaluation.
 - **Customizable Training**: Supports various configurations for training and testing.
 
@@ -78,14 +78,11 @@ You’re now ready to go! 🚀
 
 Preprocessing scripts for supported datasets are in `hanscribe/preprocess/`. Examples:
 
-- `dataset_preprocess-CSL.py`
-- `dataset_preprocess-CSL-Daily.py`
-- `dataset_preprocess-lis.py` ???? MAGER!
 - `dataset_preprocess-T.py`
 
 ## Data Preparation
 
-Please follow the instruction in [CorrNet](https://github.com/hulianyuyy/CorrNet) github repo to download and preprocess the datasets (PHOENIX2014, PHOENIX2014-T, CSL-Daily).
+Please follow the instruction in [CorrNet](https://github.com/hulianyuyy/CorrNet) github repo to download and preprocess the datasets (PHOENIX2014, PHOENIX2014-T).
 The structure of dataset directory is as follows (There may be other additional directories.):
 
 ```
